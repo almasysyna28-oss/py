@@ -33,6 +33,16 @@ YOUTUBE_URL_PATTERN = re.compile(
     r"(https?://)?(www\.)?(youtube\.com/watch\?v=|youtu\.be/|youtube\.com/shorts/)[\w\-]+[^\s]*"
 )
 
+COOKIES_FILE = "cookies.txt"  # اگه این فایل کنار کد موجود باشه، خودکار استفاده میشه
+
+
+def _base_ydl_opts() -> dict:
+    opts = {}
+    if os.path.exists(COOKIES_FILE):
+        opts["cookiefile"] = COOKIES_FILE
+    return opts
+
+
 # حافظه موقت: chat_id -> {"url": ..., "formats": {format_id: label}}
 pending_requests: dict[int, dict] = {}
 
@@ -64,7 +74,7 @@ def get_available_qualities(url: str):
     استخراج می‌کنه و به ازای هر رزولوشن، بهترین گزینه رو نگه می‌داره.
     خروجی: لیستی از (format_id, height, filesize)
     """
-    ydl_opts = {"quiet": True, "noplaylist": True}
+    ydl_opts = {"quiet": True, "noplaylist": True, **_base_ydl_opts()}
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=False)
 
@@ -92,6 +102,7 @@ def download_format(url: str, format_id: str) -> tuple[str | None, str]:
         "format": format_id,
         "outtmpl": os.path.join(DOWNLOAD_DIR, "%(id)s_%(format_id)s.%(ext)s"),
         "noplaylist": True,
+        **_base_ydl_opts(),
     }
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
