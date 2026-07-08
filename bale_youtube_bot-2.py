@@ -138,7 +138,7 @@ def handle_message(chat_id: int, text: str):
         return
 
     if text.strip() in ("/start", "start"):
-        send_message(chat_id, "سلام! 👋 لینک ویدیوی یوتیوب رو برام بفرست تا کیفیت‌های موجود رو نشونت بدم.")
+        send_message(chat_id, "سلامم! 👋 لینک ویدیوی یوتیوب رو برام بفرست تا کیفیت‌های موجود رو نشونت بدم.")
         return
 
     match = YOUTUBE_URL_PATTERN.search(text)
