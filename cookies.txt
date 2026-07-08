@@ -1,0 +1,11 @@
+# Netscape HTTP Cookie File
+# https://curl.haxx.se/rfc/cookie_spec.html
+# This is a generated file! Do not edit.
+
+www.google.com	FALSE	/recaptcha	TRUE	1796153406	_GRECAPTCHA	09AKhCRwhhtPjI6tjP49EXYlPDGbAVV6Wez3TeOtMKU_kqqT-FAF3Wr42X1nLEUslaVamA5rrnfgYHypTQeF3Nc5E
+.google.com	TRUE	/verify	TRUE	1797548538	SNID	ALQpT-WZuhX12ztfhoEhKyEIMhb57tynNK3m6i21SLg9rTPJBrysb-eiLjTNS4lYOhZf1YAzf8ufxl1jHie6zzmJjPpbsbYjCBo
+www.internetdownloadmanager.com	FALSE	/	FALSE	1815063976	idmwebext_cid	1
+www.ninjaotaku.com	FALSE	/	FALSE	1812040371	device_id	e03f4851-b957-475c-9e96-d294fef9f329
+.youtube.com	TRUE	/	TRUE	1818076258	PREF	tz=Asia.Tehran
+.chromewebstore.google.com	TRUE	/	FALSE	1815066865	_ga	GA1.1.500749242.1780506865
+.chromewebstore.google.com	TRUE	/	FALSE	1815068099	_ga_KHZNC1Q6K0	GS2.1.s1780506864$o1$g1$t1780508098$j60$l0$h0
