@@ -1,24 +1,25 @@
 """
-ربات بله: دانلود از یوتیوب با انتخاب کیفیت
-----------------------------------------------
+ربات بله: دانلود از یوتیوب با انتخاب کیفیت + تقسیم RAR چندپارتی
+--------------------------------------------------------------------
 پیش‌نیازها:
     pip install yt-dlp requests
+    + ffmpeg و rar باید روی سیستم نصب باشن (nixpacks.toml این کار رو
+      روی Railway انجام می‌ده)
 
 نحوه کار:
     1. کاربر لینک یوتیوب می‌فرسته
-    2. ربات فرمت‌های موجود (progressive - بدون نیاز به ffmpeg) رو با حجمشون
-       به‌صورت دکمه نشون می‌ده
+    2. ربات همه‌ی کیفیت‌های موجود (حتی سنگین‌ها) رو با حجم تخمینی نشون می‌ده
     3. کاربر کیفیت مورد نظر رو انتخاب می‌کنه
-    4. ربات همون کیفیت رو دانلود و ارسال می‌کنه
-
-نکته: از کلاینت android یوتیوب استفاده می‌کنیم چون این کلاینت نیازی به
-رمزگشایی امضا با JS runtime نداره (که روی سرورهایی مثل Railway معمولاً
-موجود نیست) و همچنین کمتر توسط سیستم ضد-بات یوتیوب فلگ میشه.
+    4. ویدیو دانلود و (در صورت نیاز) با ffmpeg ترکیب میشه
+    5. اگه حجم نهایی از سقف مجاز بله بیشتر بود، با ابزار rar به چند پارت
+       تقسیم و همه‌ی پارت‌ها پشت‌سرهم به‌عنوان فایل (document) ارسال میشن
 """
 
 import os
 import re
+import glob
 import time
+import subprocess
 import requests
 import yt_dlp
 
@@ -27,7 +28,8 @@ BALE_TOKEN = "1624551307:sXvFHJ0-5wGM-VwHbGqW7DuLH0DUHNKZfP8"
 BALE_BASE_URL = f"https://tapi.bale.ai/bot{BALE_TOKEN}"
 
 DOWNLOAD_DIR = "downloads"
-MAX_SIZE_MB = 45
+MAX_SIZE_MB = 45          # سقف حجم مجاز برای هر پارت/فایل ارسالی به بله
+RAR_VOLUME_MB = 40        # حجم هر پارت RAR (کمی کمتر از سقف برای اطمینان)
 POLL_INTERVAL_SECONDS = 2
 
 YOUTUBE_URL_PATTERN = re.compile(
@@ -39,15 +41,11 @@ def base_ydl_opts() -> dict:
     return {
         "quiet": True,
         "noplaylist": True,
-        # فقط کلاینت android: نیازی به کوکی یا JS runtime نداره و
-        # کمتر با دیوار "ورود به حساب" یوتیوب مواجه میشه.
-        # مهم: اگه فایل cookies.txt رو روی Railway گذاشتید، حتماً حذفش کنید،
-        # چون وجود کوکی باعث میشه yt-dlp کلاینت android رو رد کنه.
         "extractor_args": {"youtube": {"player_client": ["android"]}},
     }
 
 
-# حافظه موقت: chat_id -> {"url": ..., "formats": {format_id: label}}
+# حافظه موقت: chat_id -> {"url": ..., "formats": {key: {"format": ..., "label": ...}}}
 pending_requests: dict[int, dict] = {}
 
 
@@ -74,54 +72,103 @@ def format_size(num_bytes) -> str:
 
 def get_available_qualities(url: str):
     """
-    فرمت‌های progressive (صدا+ویدیو ترکیب‌شده، بدون نیاز به ffmpeg) رو
-    استخراج می‌کنه و به ازای هر رزولوشن، بهترین گزینه رو نگه می‌داره.
-    خروجی: لیستی از (format_id, height, filesize)
+    همه‌ی کیفیت‌های موجود (progressive و adaptive) رو با حجم تخمینی برمی‌گردونه،
+    بدون فیلتر کردن بر اساس سقف حجم (چون قراره سنگین‌ها رو با RAR تقسیم کنیم).
     """
     with yt_dlp.YoutubeDL(base_ydl_opts()) as ydl:
         info = ydl.extract_info(url, download=False)
 
+    formats = info.get("formats", [])
+
+    audio_formats = [f for f in formats if f.get("vcodec") == "none" and f.get("acodec") != "none"]
+    best_audio = max(audio_formats, key=lambda f: f.get("abr") or 0, default=None)
+    audio_size = (best_audio.get("filesize") or best_audio.get("filesize_approx") or 0) if best_audio else 0
+
     best_by_height = {}
-    for f in info.get("formats", []):
-        if f.get("vcodec") == "none" or f.get("acodec") == "none":
-            continue  # فقط فرمت‌های progressive (هم صدا هم ویدیو)
-        if f.get("ext") != "mp4":
-            continue
+
+    for f in formats:
         height = f.get("height")
         if not height:
             continue
-        size = f.get("filesize") or f.get("filesize_approx") or 0
-        if height not in best_by_height or size > best_by_height[height][1]:
-            best_by_height[height] = (f["format_id"], size)
 
-    result = [(fid, h, size) for h, (fid, size) in best_by_height.items()]
-    result.sort(key=lambda x: x[1], reverse=True)  # بزرگ‌ترین کیفیت اول
+        is_progressive = f.get("vcodec") != "none" and f.get("acodec") != "none"
+        is_video_only = f.get("vcodec") != "none" and f.get("acodec") == "none"
+
+        if is_progressive and f.get("ext") == "mp4":
+            size = f.get("filesize") or f.get("filesize_approx") or 0
+            selector = f["format_id"]
+        elif is_video_only and best_audio and f.get("ext") == "mp4":
+            video_size = f.get("filesize") or f.get("filesize_approx") or 0
+            size = (video_size + audio_size) if video_size else 0
+            selector = f"{f['format_id']}+{best_audio['format_id']}"
+        else:
+            continue
+
+        if height not in best_by_height or size > best_by_height[height][1]:
+            best_by_height[height] = (selector, size)
+
+    result = [{"format": selector, "height": h, "size": size} for h, (selector, size) in best_by_height.items()]
+    result.sort(key=lambda x: x["height"], reverse=True)
     return result, info.get("title", "video")
 
 
-def download_format(url: str, format_id: str) -> tuple:
+def download_format(url: str, format_selector: str) -> tuple:
     os.makedirs(DOWNLOAD_DIR, exist_ok=True)
     opts = base_ydl_opts()
     opts.update({
-        "format": format_id,
-        "outtmpl": os.path.join(DOWNLOAD_DIR, "%(id)s_%(format_id)s.%(ext)s"),
+        "format": format_selector,
+        "outtmpl": os.path.join(DOWNLOAD_DIR, "%(id)s_%(height)s.%(ext)s"),
+        "merge_output_format": "mp4",
         "quiet": False,
     })
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=True)
             filepath = ydl.prepare_filename(info)
+            if not os.path.exists(filepath):
+                base, _ = os.path.splitext(filepath)
+                filepath = base + ".mp4"
             return filepath, ""
     except Exception as e:
         print(f"❌ خطا در دانلود: {e}")
         return None, str(e)
 
 
-def send_video(chat_id: int, filepath: str, caption: str = "") -> bool:
-    size_mb = os.path.getsize(filepath) / (1024 * 1024)
-    if size_mb > MAX_SIZE_MB:
-        send_message(chat_id, f"⚠️ حجم فایل {size_mb:.1f} مگابایت شد و بیشتر از سقف مجازه. لطفاً کیفیت پایین‌تری انتخاب کنید.")
+def split_into_rar_parts(filepath: str) -> list:
+    """فایل رو با rar به چند پارت (.part1.rar, .part2.rar, ...) تقسیم می‌کنه."""
+    base_name = os.path.splitext(filepath)[0]
+    rar_path = base_name + ".rar"
+
+    cmd = [
+        "rar", "a",
+        f"-v{RAR_VOLUME_MB}m",  # حجم هر پارت
+        "-ep1",                  # مسیر فایل رو داخل آرشیو ذخیره نکن
+        "-m0",                   # بدون فشرده‌سازی (سریع‌تر، چون ویدیو از قبل فشرده‌ست)
+        rar_path,
+        filepath,
+    ]
+    subprocess.run(cmd, check=True, capture_output=True)
+
+    parts = sorted(glob.glob(base_name + ".part*.rar"))
+    return parts
+
+
+def send_document(chat_id: int, filepath: str, caption: str = "") -> bool:
+    try:
+        with open(filepath, "rb") as f:
+            resp = requests.post(
+                f"{BALE_BASE_URL}/sendDocument",
+                data={"chat_id": chat_id, "caption": caption},
+                files={"document": f},
+                timeout=300,
+            )
+        return bool(resp.json().get("ok"))
+    except Exception as e:
+        print(f"❌ خطا در ارسال فایل: {e}")
         return False
+
+
+def send_video(chat_id: int, filepath: str, caption: str = "") -> bool:
     try:
         with open(filepath, "rb") as f:
             resp = requests.post(
@@ -141,7 +188,7 @@ def handle_message(chat_id: int, text: str):
         return
 
     if text.strip() in ("/start", "start"):
-        send_message(chat_id, "سلام! 👋 لینک ویدیوی یوتیوب رو برام بفرست تا کیفیت‌های موجود رو نشونت بدم.")
+        send_message(chat_id, "سلامم! 👋 لینک ویدیوی یوتیوب رو برام بفرست تا کیفیت‌های موجود رو نشونت بدم.")
         return
 
     match = YOUTUBE_URL_PATTERN.search(text)
@@ -159,21 +206,24 @@ def handle_message(chat_id: int, text: str):
         return
 
     if not qualities:
-        send_message(chat_id, "❌ هیچ کیفیت قابل‌دانلودی (بدون نیاز به پردازش اضافه) برای این ویدیو پیدا نشد.")
+        send_message(chat_id, "❌ هیچ کیفیتی برای این ویدیو پیدا نشد.")
         return
 
     format_map = {}
     buttons = []
-    for format_id, height, size in qualities:
-        label = f"{height}p - {format_size(size)}"
-        format_map[format_id] = label
-        buttons.append([{"text": label, "callback_data": f"dl:{format_id}"}])
+    for i, q in enumerate(qualities):
+        key = str(i)
+        size_mb = (q["size"] / (1024 * 1024)) if q["size"] else 0
+        note = " 📦 چندپارتی" if size_mb > MAX_SIZE_MB else ""
+        label = f"{q['height']}p - {format_size(q['size'])}{note}"
+        format_map[key] = {"format": q["format"], "label": label}
+        buttons.append([{"text": label, "callback_data": f"dl:{key}"}])
 
     pending_requests[chat_id] = {"url": url, "formats": format_map}
 
     send_message(
         chat_id,
-        f"🎬 {title}\n\nکیفیت مورد نظر رو انتخاب کن:",
+        f"🎬 {title}\n\nکیفیت مورد نظر رو انتخاب کن:\n(کیفیت‌های با علامت 📦 به‌صورت RAR چندپارتی ارسال میشن)",
         reply_markup={"inline_keyboard": buttons},
     )
 
@@ -184,35 +234,60 @@ def handle_callback(chat_id: int, callback_id: str, data: str):
     if not data.startswith("dl:"):
         return
 
-    format_id = data.split(":", 1)[1]
+    key = data.split(":", 1)[1]
     pending = pending_requests.get(chat_id)
 
-    if not pending or format_id not in pending["formats"]:
+    if not pending or key not in pending["formats"]:
         send_message(chat_id, "⚠️ این درخواست منقضی شده. لطفاً دوباره لینک رو بفرست.")
         return
 
     url = pending["url"]
-    label = pending["formats"][format_id]
-    send_message(chat_id, f"⬇️ در حال دانلود کیفیت {label} ...")
+    chosen = pending["formats"][key]
+    send_message(chat_id, f"⬇️ در حال دانلود کیفیت {chosen['label']} ...")
 
-    filepath, error_msg = download_format(url, format_id)
+    filepath, error_msg = download_format(url, chosen["format"])
     if not filepath:
         send_message(chat_id, f"❌ دانلود ناموفق بود.\n\nخطا:\n{error_msg[:300]}")
         return
 
-    send_message(chat_id, "⬆️ دانلود تموم شد، در حال ارسال...")
+    size_mb = os.path.getsize(filepath) / (1024 * 1024)
     caption = os.path.splitext(os.path.basename(filepath))[0]
-    ok = send_video(chat_id, filepath, caption=caption)
 
-    if not ok:
-        send_message(chat_id, "❌ ارسال ویدیو ناموفق بود.")
+    if size_mb <= MAX_SIZE_MB:
+        send_message(chat_id, "⬆️ دانلود تموم شد، در حال ارسال...")
+        ok = send_video(chat_id, filepath, caption=caption)
+        if not ok:
+            send_message(chat_id, "❌ ارسال ویدیو ناموفق بود.")
+    else:
+        send_message(chat_id, f"📦 حجم فایل {size_mb:.1f} مگابایته، در حال تقسیم به چند پارت RAR...")
+        try:
+            parts = split_into_rar_parts(filepath)
+        except subprocess.CalledProcessError as e:
+            send_message(chat_id, f"❌ خطا در ساخت RAR: {e}")
+            _cleanup(filepath)
+            pending_requests.pop(chat_id, None)
+            return
 
+        if not parts:
+            send_message(chat_id, "❌ تقسیم فایل ناموفق بود.")
+        else:
+            send_message(chat_id, f"⬆️ در حال ارسال {len(parts)} پارت...")
+            for i, part in enumerate(parts, 1):
+                ok = send_document(chat_id, part, caption=f"{caption} - پارت {i}/{len(parts)}")
+                if not ok:
+                    send_message(chat_id, f"❌ ارسال پارت {i} ناموفق بود.")
+                os.remove(part)
+            send_message(chat_id, "✅ همه‌ی پارت‌ها ارسال شدن. برای اتصال، همه‌ی پارت‌ها رو کنار هم بذارید و اولی رو با WinRAR باز کنید.")
+
+    _cleanup(filepath)
+    pending_requests.pop(chat_id, None)
+
+
+def _cleanup(filepath: str):
     try:
         os.remove(filepath)
     except OSError:
         pass
-
-    pending_requests.pop(chat_id, None)
 
 
 def main():
