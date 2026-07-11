@@ -41,7 +41,8 @@ def base_ydl_opts() -> dict:
     return {
         "quiet": True,
         "noplaylist": True,
-        "extractor_args": {"youtube": {"player_client": ["android"]}},
+        # چند کلاینت رو امتحان می‌کنیم؛ اگه یکی بلاک بود، بقیه رو تست می‌کنه
+        "extractor_args": {"youtube": {"player_client": ["android", "ios", "tv"]}},
     }
 
 
@@ -188,7 +189,7 @@ def handle_message(chat_id: int, text: str):
         return
 
     if text.strip() in ("/start", "start"):
-        send_message(chat_id, "سلامم! 👋 لینک ویدیوی یوتیوب رو برام بفرست تا کیفیت‌های موجود رو نشونت بدم.")
+        send_message(chat_id, "سلام! 👋 لینک ویدیوی یوتیوب رو برام بفرست تا کیفیت‌های موجود رو نشونت بدم.")
         return
 
     match = YOUTUBE_URL_PATTERN.search(text)
