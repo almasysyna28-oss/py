@@ -42,7 +42,8 @@ COOKIES_FILE = "cookies.txt"
 
 def base_ydl_opts() -> dict:
     opts = {
-        "quiet": True,
+        "quiet": False,
+        "verbose": True,
         "noplaylist": True,
     }
     if os.path.exists(COOKIES_FILE):
