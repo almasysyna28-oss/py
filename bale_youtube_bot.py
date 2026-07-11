@@ -41,19 +41,13 @@ COOKIES_FILE = "cookies.txt"
 
 
 def base_ydl_opts() -> dict:
-    opts = {
-        "quiet": False,
-        "verbose": True,
+    return {
+        "quiet": True,
         "noplaylist": True,
+        # کلاینت android نیازی به کوکی یا JS runtime (deno) نداره،
+        # که چون Railway الان از Railpack استفاده می‌کنه نصب deno سخته
+        "extractor_args": {"youtube": {"player_client": ["android"]}},
     }
-    if os.path.exists(COOKIES_FILE):
-        # وقتی کوکی داریم، کلاینت web استفاده می‌کنیم چون android/ios
-        # اصلاً کوکی رو قبول نمی‌کنن
-        opts["cookiefile"] = COOKIES_FILE
-        opts["extractor_args"] = {"youtube": {"player_client": ["web"]}}
-    else:
-        opts["extractor_args"] = {"youtube": {"player_client": ["android"]}}
-    return opts
 
 
 # حافظه موقت: chat_id -> {"url": ..., "formats": {key: {"format": ..., "label": ...}}}
@@ -137,7 +131,7 @@ def download_format(info: dict, format_selector: str) -> tuple:
         "format": format_selector,
         "outtmpl": os.path.join(DOWNLOAD_DIR, "%(id)s_%(height)s.%(ext)s"),
         "merge_output_format": "mp4",
-        "quiet": False,
+        "quiet": True,
     })
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
