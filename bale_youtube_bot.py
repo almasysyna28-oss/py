@@ -164,19 +164,40 @@ def split_into_rar_parts(filepath: str) -> list:
     return parts
 
 
-def send_document(chat_id: int, filepath: str, caption: str = "") -> bool:
-    try:
-        with open(filepath, "rb") as f:
-            resp = requests.post(
-                f"{BALE_BASE_URL}/sendDocument",
-                data={"chat_id": chat_id, "caption": caption},
-                files={"document": f},
-                timeout=300,
-            )
-        return bool(resp.json().get("ok"))
-    except Exception as e:
-        print(f"❌ خطا در ارسال فایل: {e}")
-        return False
+def send_document(chat_id: int, filepath: str, caption: str = "", max_retries: int = 3) -> bool:
+    for attempt in range(1, max_retries + 1):
+        try:
+            with open(filepath, "rb") as f:
+                resp = requests.post(
+                    f"{BALE_BASE_URL}/sendDocument",
+                    data={"chat_id": chat_id, "caption": caption},
+                    files={"document": f},
+                    timeout=300,
+                )
+
+            if resp.status_code != 200:
+                print(f"❌ کد وضعیت غیرمنتظره: {resp.status_code} | بدنه: {resp.text[:300]}")
+                time.sleep(3 * attempt)  # backoff قبل از تلاش بعدی
+                continue
+
+            try:
+                result = resp.json()
+            except ValueError:
+                print(f"❌ پاسخ JSON نبود. بدنه خام: {resp.text[:300]}")
+                time.sleep(3 * attempt)
+                continue
+
+            if result.get("ok"):
+                return True
+            else:
+                print(f"❌ خطای بله: {result}")
+                time.sleep(3 * attempt)
+
+        except requests.exceptions.RequestException as e:
+            print(f"❌ خطای شبکه در ارسال فایل (تلاش {attempt}/{max_retries}): {e}")
+            time.sleep(3 * attempt)
+
+    return False
 
 
 def send_video(chat_id: int, filepath: str, caption: str = "") -> bool:
@@ -288,6 +309,7 @@ def handle_callback(chat_id: int, callback_id: str, data: str):
                 if not ok:
                     send_message(chat_id, f"❌ ارسال پارت {i} ناموفق بود.")
                 os.remove(part)
+                time.sleep(2)  # مکث کوتاه بین پارت‌ها برای جلوگیری از rate limit
             send_message(chat_id, "✅ همه‌ی پارت‌ها ارسال شدن. برای اتصال، همه‌ی پارت‌ها (.7z.001, .7z.002, ...) رو توی یک پوشه کنار هم بذارید و فایل .7z.001 رو با نرم‌افزار 7-Zip یا WinRAR باز کنید (هر دو از این فرمت پشتیبانی می‌کنن).")
 
     _cleanup(filepath)
