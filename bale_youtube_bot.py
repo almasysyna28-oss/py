@@ -41,8 +41,7 @@ def base_ydl_opts() -> dict:
     return {
         "quiet": True,
         "noplaylist": True,
-        # چند کلاینت رو امتحان می‌کنیم؛ اگه یکی بلاک بود، بقیه رو تست می‌کنه
-        "extractor_args": {"youtube": {"player_client": ["android", "ios", "tv"]}},
+        "extractor_args": {"youtube": {"player_client": ["android"]}},
     }
 
 
@@ -73,8 +72,9 @@ def format_size(num_bytes) -> str:
 
 def get_available_qualities(url: str):
     """
-    همه‌ی کیفیت‌های موجود (progressive و adaptive) رو با حجم تخمینی برمی‌گردونه،
-    بدون فیلتر کردن بر اساس سقف حجم (چون قراره سنگین‌ها رو با RAR تقسیم کنیم).
+    همه‌ی کیفیت‌های موجود (progressive و adaptive) رو با حجم تخمینی برمی‌گردونه.
+    خروجی سوم (info) رو نگه می‌داریم تا برای دانلود واقعی دوباره از یوتیوب
+    درخواست نزنیم (کاهش تعداد درخواست‌ها = کمتر مشکوک شدن نزد یوتیوب).
     """
     with yt_dlp.YoutubeDL(base_ydl_opts()) as ydl:
         info = ydl.extract_info(url, download=False)
@@ -110,10 +110,14 @@ def get_available_qualities(url: str):
 
     result = [{"format": selector, "height": h, "size": size} for h, (selector, size) in best_by_height.items()]
     result.sort(key=lambda x: x["height"], reverse=True)
-    return result, info.get("title", "video")
+    return result, info.get("title", "video"), info
 
 
-def download_format(url: str, format_selector: str) -> tuple:
+def download_format(info: dict, format_selector: str) -> tuple:
+    """
+    به‌جای extract_info دوباره، از info از قبل گرفته‌شده استفاده می‌کنه
+    (process_ie_result) تا یک درخواست کمتر به یوتیوب بزنیم.
+    """
     os.makedirs(DOWNLOAD_DIR, exist_ok=True)
     opts = base_ydl_opts()
     opts.update({
@@ -124,8 +128,8 @@ def download_format(url: str, format_selector: str) -> tuple:
     })
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            filepath = ydl.prepare_filename(info)
+            result = ydl.process_ie_result(dict(info), download=True)
+            filepath = ydl.prepare_filename(result)
             if not os.path.exists(filepath):
                 base, _ = os.path.splitext(filepath)
                 filepath = base + ".mp4"
@@ -201,7 +205,7 @@ def handle_message(chat_id: int, text: str):
     send_message(chat_id, "🔎 در حال بررسی کیفیت‌های موجود...")
 
     try:
-        qualities, title = get_available_qualities(url)
+        qualities, title, info = get_available_qualities(url)
     except Exception as e:
         send_message(chat_id, f"❌ نتونستم اطلاعات ویدیو رو بگیرم.\n\nخطا:\n{str(e)[:300]}")
         return
@@ -220,7 +224,7 @@ def handle_message(chat_id: int, text: str):
         format_map[key] = {"format": q["format"], "label": label}
         buttons.append([{"text": label, "callback_data": f"dl:{key}"}])
 
-    pending_requests[chat_id] = {"url": url, "formats": format_map}
+    pending_requests[chat_id] = {"info": info, "formats": format_map}
 
     send_message(
         chat_id,
@@ -242,11 +246,11 @@ def handle_callback(chat_id: int, callback_id: str, data: str):
         send_message(chat_id, "⚠️ این درخواست منقضی شده. لطفاً دوباره لینک رو بفرست.")
         return
 
-    url = pending["url"]
+    info = pending["info"]
     chosen = pending["formats"][key]
     send_message(chat_id, f"⬇️ در حال دانلود کیفیت {chosen['label']} ...")
 
-    filepath, error_msg = download_format(url, chosen["format"])
+    filepath, error_msg = download_format(info, chosen["format"])
     if not filepath:
         send_message(chat_id, f"❌ دانلود ناموفق بود.\n\nخطا:\n{error_msg[:300]}")
         return
