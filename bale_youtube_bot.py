@@ -28,8 +28,8 @@ BALE_TOKEN = "1624551307:sXvFHJ0-5wGM-VwHbGqW7DuLH0DUHNKZfP8"
 BALE_BASE_URL = f"https://tapi.bale.ai/bot{BALE_TOKEN}"
 
 DOWNLOAD_DIR = "downloads"
-MAX_SIZE_MB = 45          # سقف حجم مجاز برای هر پارت/فایل ارسالی به بله
-RAR_VOLUME_MB = 40        # حجم هر پارت RAR (کمی کمتر از سقف برای اطمینان)
+MAX_SIZE_MB = 18          # سقف حجم مجاز برای ارسال مستقیم ویدیو (بدون تقسیم)
+RAR_VOLUME_MB = 15        # حجم هر پارت — نسخه قبلی (40MB) با خطای 413 از سمت بله رد شد
 POLL_INTERVAL_SECONDS = 2
 
 YOUTUBE_URL_PATTERN = re.compile(
@@ -326,6 +326,7 @@ def _cleanup(filepath: str):
 def main():
     print("🤖 ربات در حال اجراست... (برای توقف Ctrl+C بزنید)")
     offset = None
+    seen_update_ids: set = set()  # محافظت اضافه در برابر آپدیت‌های تکراری
 
     while True:
         try:
@@ -342,7 +343,16 @@ def main():
                 continue
 
             for update in data.get("result", []):
-                offset = update["update_id"] + 1
+                update_id = update["update_id"]
+                offset = update_id + 1
+
+                if update_id in seen_update_ids:
+                    print(f"⏭️  آپدیت تکراری نادیده گرفته شد: {update_id}")
+                    continue
+                seen_update_ids.add(update_id)
+                # جلوگیری از رشد بی‌نهایت حافظه: فقط ۵۰۰ تای اخیر رو نگه می‌داریم
+                if len(seen_update_ids) > 500:
+                    seen_update_ids = set(sorted(seen_update_ids)[-500:])
 
                 if "callback_query" in update:
                     cq = update["callback_query"]
@@ -357,7 +367,7 @@ def main():
                 chat_id = message["chat"]["id"]
                 text = message.get("text", "")
                 sender = message.get("from", {}).get("first_name", "کاربر")
-                print(f"📩 پیام جدید از {sender} ({chat_id}): {text}")
+                print(f"📩 [update_id={update_id}] پیام جدید از {sender} ({chat_id}): {text}")
 
                 handle_message(chat_id, text)
 
