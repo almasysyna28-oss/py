@@ -1,2 +1,2 @@
 [phases.setup]
-nixPkgs = ["ffmpeg", "rar"]
+nixPkgs = ["ffmpeg", "p7zip"]
