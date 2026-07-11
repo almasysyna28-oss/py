@@ -37,12 +37,22 @@ YOUTUBE_URL_PATTERN = re.compile(
 )
 
 
+COOKIES_FILE = "cookies.txt"
+
+
 def base_ydl_opts() -> dict:
-    return {
+    opts = {
         "quiet": True,
         "noplaylist": True,
-        "extractor_args": {"youtube": {"player_client": ["android"]}},
     }
+    if os.path.exists(COOKIES_FILE):
+        # وقتی کوکی داریم، کلاینت web استفاده می‌کنیم چون android/ios
+        # اصلاً کوکی رو قبول نمی‌کنن
+        opts["cookiefile"] = COOKIES_FILE
+        opts["extractor_args"] = {"youtube": {"player_client": ["web"]}}
+    else:
+        opts["extractor_args"] = {"youtube": {"player_client": ["android"]}}
+    return opts
 
 
 # حافظه موقت: chat_id -> {"url": ..., "formats": {key: {"format": ..., "label": ...}}}
@@ -194,7 +204,7 @@ def handle_message(chat_id: int, text: str):
         return
 
     if text.strip() in ("/start", "start"):
-        send_message(chat_id, "سلام! 👋 لینک ویدیوی یوتیوب رو برام بفرست تا کیفیت‌های موجود رو نشونت بدمS.")
+        send_message(chat_id, "سلام! 👋 لینک ویدیوی یوتیوب رو برام بفرست تا کیفیت‌های موجود رو نشونت بدم.")
         return
 
     match = YOUTUBE_URL_PATTERN.search(text)
