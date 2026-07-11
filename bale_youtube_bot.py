@@ -34,19 +34,17 @@ YOUTUBE_URL_PATTERN = re.compile(
     r"(https?://)?(www\.)?(youtube\.com/watch\?v=|youtu\.be/|youtube\.com/shorts/)[\w\-]+[^\s]*"
 )
 
-# اگه فایل cookies.txt کنار این اسکریپت باشه، خودکار استفاده میشه
-COOKIES_FILE = "cookies.txt"
-
 
 def base_ydl_opts() -> dict:
-    opts = {
+    return {
         "quiet": True,
         "noplaylist": True,
+        # فقط کلاینت android: نیازی به کوکی یا JS runtime نداره و
+        # کمتر با دیوار "ورود به حساب" یوتیوب مواجه میشه.
+        # مهم: اگه فایل cookies.txt رو روی Railway گذاشتید، حتماً حذفش کنید،
+        # چون وجود کوکی باعث میشه yt-dlp کلاینت android رو رد کنه.
         "extractor_args": {"youtube": {"player_client": ["android"]}},
     }
-    if os.path.exists(COOKIES_FILE):
-        opts["cookiefile"] = COOKIES_FILE
-    return opts
 
 
 # حافظه موقت: chat_id -> {"url": ..., "formats": {format_id: label}}
