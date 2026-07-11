@@ -142,21 +142,20 @@ def download_format(info: dict, format_selector: str) -> tuple:
 
 
 def split_into_rar_parts(filepath: str) -> list:
-    """فایل رو با rar به چند پارت (.part1.rar, .part2.rar, ...) تقسیم می‌کنه."""
+    """فایل رو با 7z به چند پارت (.7z.001, .7z.002, ...) تقسیم می‌کنه."""
     base_name = os.path.splitext(filepath)[0]
-    rar_path = base_name + ".rar"
+    archive_path = base_name + ".7z"
 
     cmd = [
-        "rar", "a",
-        f"-v{RAR_VOLUME_MB}m",  # حجم هر پارت
-        "-ep1",                  # مسیر فایل رو داخل آرشیو ذخیره نکن
-        "-m0",                   # بدون فشرده‌سازی (سریع‌تر، چون ویدیو از قبل فشرده‌ست)
-        rar_path,
+        "7z", "a",
+        f"-v{RAR_VOLUME_MB}m",   # حجم هر پارت
+        "-mx0",                   # بدون فشرده‌سازی (سریع‌تر، چون ویدیو از قبل فشرده‌ست)
+        archive_path,
         filepath,
     ]
     subprocess.run(cmd, check=True, capture_output=True)
 
-    parts = sorted(glob.glob(base_name + ".part*.rar"))
+    parts = sorted(glob.glob(archive_path + ".*"))
     return parts
 
 
@@ -195,7 +194,7 @@ def handle_message(chat_id: int, text: str):
         return
 
     if text.strip() in ("/start", "start"):
-        send_message(chat_id, "سلام! 👋 لینک ویدیوی یوتیوب رو برام بفرست تا کیفیت‌های موجود رو نشونت بدم.")
+        send_message(chat_id, "سلام! 👋 لینک ویدیوی یوتیوب رو برام بفرست تا کیفیت‌های موجود رو نشونت بدمS.")
         return
 
     match = YOUTUBE_URL_PATTERN.search(text)
@@ -230,7 +229,7 @@ def handle_message(chat_id: int, text: str):
 
     send_message(
         chat_id,
-        f"🎬 {title}\n\nکیفیت مورد نظر رو انتخاب کن:\n(کیفیت‌های با علامت 📦 به‌صورت RAR چندپارتی ارسال میشن)",
+        f"🎬 {title}\n\nکیفیت مورد نظر رو انتخاب کن:\n(کیفیت‌های با علامت 📦 به‌صورت آرشیو چندپارتی 7z ارسال میشن)",
         reply_markup={"inline_keyboard": buttons},
     )
 
@@ -284,7 +283,7 @@ def handle_callback(chat_id: int, callback_id: str, data: str):
                 if not ok:
                     send_message(chat_id, f"❌ ارسال پارت {i} ناموفق بود.")
                 os.remove(part)
-            send_message(chat_id, "✅ همه‌ی پارت‌ها ارسال شدن. برای اتصال، همه‌ی پارت‌ها رو کنار هم بذارید و اولی رو با WinRAR باز کنید.")
+            send_message(chat_id, "✅ همه‌ی پارت‌ها ارسال شدن. برای اتصال، همه‌ی پارت‌ها (.7z.001, .7z.002, ...) رو توی یک پوشه کنار هم بذارید و فایل .7z.001 رو با نرم‌افزار 7-Zip یا WinRAR باز کنید (هر دو از این فرمت پشتیبانی می‌کنن).")
 
     _cleanup(filepath)
     pending_requests.pop(chat_id, None)
