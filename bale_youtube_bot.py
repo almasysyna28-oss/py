@@ -47,6 +47,8 @@ def base_ydl_opts() -> dict:
 
 # حافظه موقت: chat_id -> {"url": ..., "formats": {key: {"format": ..., "label": ...}}}
 pending_requests: dict[int, dict] = {}
+# جلوگیری از پردازش دوباره یک callback یکسان (در صورت دوبار رسیدن آپدیت)
+processed_callback_ids: set = set()
 
 
 def send_message(chat_id: int, text: str, reply_markup: dict | None = None):
